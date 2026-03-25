@@ -1,199 +1,148 @@
 #!/usr/bin/env node
 /**
- * SEO Local — Scanner Google Maps
+ * SEO Local — Scanner Google Maps (Places API v1)
  * Trouve les commerces avec fiches mal optimisées
- * Sources : Google Places API (gratuit jusqu'à 200$/mois de crédit)
  */
 
 const https = require('https')
-
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY || null
 
-// Villes et niches cibles
-const CITIES = ['Tourcoing', 'Roubaix', 'Lille', 'Mouvaux', 'Wattrelos', 'Villeneuve-d\'Ascq']
-const NICHES = ['restaurant', 'garage automobile', 'dentiste', 'coiffeur', 'boulangerie', 'pharmacie', 'plombier', 'électricien']
+const NICHES = ['restaurant', 'garage automobile', 'dentiste', 'coiffeur', 'boulangerie', 'plombier', 'électricien', 'pharmacie']
 
-function httpsGet(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-      let data = ''
-      res.on('data', chunk => data += chunk)
+if (!API_KEY) {
+  console.error('⚠️  Pas de GOOGLE_PLACES_API_KEY — mode démo')
+} else {
+  console.error('✓ Google Places API active')
+}
+
+async function searchPlaces(query, city) {
+  if (!API_KEY) return getDemoResults(query, city)
+
+  const body = JSON.stringify({
+    textQuery: `${query} ${city} France`,
+    languageCode: 'fr',
+    maxResultCount: 10,
+    rankPreference: 'RELEVANCE',
+  })
+
+  return new Promise((resolve) => {
+    let raw = ''
+    const req = https.request({
+      hostname: 'places.googleapis.com',
+      path: '/v1/places:searchText',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': API_KEY,
+        'X-Goog-FieldMask': [
+          'places.id',
+          'places.displayName',
+          'places.formattedAddress',
+          'places.rating',
+          'places.userRatingCount',
+          'places.websiteUri',
+          'places.nationalPhoneNumber',
+          'places.photos',
+        ].join(','),
+        'Content-Length': Buffer.byteLength(body),
+      }
+    }, (res) => {
+      res.on('data', c => raw += c)
       res.on('end', () => {
-        try { resolve(JSON.parse(data)) }
-        catch { resolve(data) }
+        try {
+          const d = JSON.parse(raw)
+          if (d.error) { console.error('API Error:', d.error.message); resolve([]); return }
+          resolve((d.places || []).map(p => ({
+            name: p.displayName?.text || '',
+            address: p.formattedAddress || '',
+            rating: p.rating ?? null,
+            reviews: p.userRatingCount ?? 0,
+            website: p.websiteUri ?? null,
+            phone: p.nationalPhoneNumber ?? null,
+            photos: Array.isArray(p.photos) ? p.photos.length : 0,
+            id: p.id || '',
+          })))
+        } catch(e) { console.error('Parse error:', e.message); resolve([]) }
       })
     })
-    req.on('error', reject)
-    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')) })
+    req.on('error', (e) => { console.error('Request error:', e.message); resolve([]) })
+    req.setTimeout(12000, () => { req.destroy(); resolve([]) })
+    req.write(body)
+    req.end()
   })
+}
+
+function getDemoResults(niche, city) {
+  return [
+    { name: `${niche} Demo 1 — ${city}`, address: `12 Rue de la Paix, ${city}`, rating: 3.8, reviews: 7, photos: 1, website: null, phone: null, id: 'demo_1' },
+    { name: `${niche} Demo 2 — ${city}`, address: `45 Avenue Victor Hugo, ${city}`, rating: 4.2, reviews: 23, photos: 2, website: 'https://example.com', phone: '+33600000000', id: 'demo_2' },
+    { name: `${niche} Demo 3 — ${city}`, address: `8 Rue du Commerce, ${city}`, rating: 2.9, reviews: 4, photos: 0, website: null, phone: null, id: 'demo_3' },
+  ]
 }
 
 function analyzePlace(place) {
   const issues = []
-  const score = {
-    total: 0,
-    max: 100,
-    issues: [],
-    opportunities: []
-  }
+  let score = 100
 
-  // Pas de site web
   if (!place.website) {
-    issues.push({ type: 'no_website', severity: 'high', label: 'Pas de site web', points: 25 })
-    score.opportunities.push('Création/refonte site web')
+    score -= 25
+    issues.push({ type: 'no_website', label: 'Pas de site web', severity: 'high' })
+  }
+  if (place.reviews < 15) {
+    score -= 20
+    issues.push({ type: 'few_reviews', label: `${place.reviews} avis seulement (< 15)`, severity: 'high' })
+  }
+  if (place.rating !== null && place.rating < 4.2) {
+    score -= 15
+    issues.push({ type: 'low_rating', label: `Note ${place.rating}/5 — sous la moyenne`, severity: 'medium' })
+  }
+  if (place.photos < 3) {
+    score -= 15
+    issues.push({ type: 'few_photos', label: `${place.photos} photo(s) seulement`, severity: 'medium' })
+  }
+  if (!place.phone) {
+    score -= 10
+    issues.push({ type: 'no_phone', label: 'Numéro de téléphone absent', severity: 'medium' })
   }
 
-  // Peu d'avis
-  if (!place.user_ratings_total || place.user_ratings_total < 10) {
-    issues.push({ type: 'few_reviews', severity: 'high', label: `Seulement ${place.user_ratings_total || 0} avis`, points: 20 })
-    score.opportunities.push('Stratégie d\'acquisition avis')
-  }
-
-  // Note basse
-  if (place.rating && place.rating < 4.0) {
-    issues.push({ type: 'low_rating', severity: 'medium', label: `Note ${place.rating}/5 — sous la moyenne`, points: 15 })
-    score.opportunities.push('Gestion réputation + réponses avis')
-  }
-
-  // Peu de photos
-  if (!place.photos || place.photos.length < 3) {
-    issues.push({ type: 'few_photos', severity: 'medium', label: `${place.photos?.length || 0} photo(s) seulement`, points: 15 })
-    score.opportunities.push('Ajout photos professionnelles')
-  }
-
-  // Pas de numéro de téléphone
-  if (!place.formatted_phone_number && !place.international_phone_number) {
-    issues.push({ type: 'no_phone', severity: 'medium', label: 'Numéro de téléphone absent', points: 10 })
-  }
-
-  // Calcul score (inversé — plus c'est bas, plus y'a de boulot)
-  const totalPoints = issues.reduce((sum, i) => sum + i.points, 0)
-  score.total = Math.max(0, 100 - totalPoints)
-  score.issues = issues
-
-  return score
-}
-
-async function searchPlaces(query, city) {
-  if (!API_KEY) {
-    // Mode démo sans API key
-    return getDemoResults(query, city)
-  }
-
-  const encodedQuery = encodeURIComponent(`${query} ${city} France`)
-  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodedQuery}&language=fr&key=${API_KEY}`
-
-  try {
-    const data = await httpsGet(url)
-    return data.results || []
-  } catch (e) {
-    console.error(`Erreur recherche: ${e.message}`)
-    return []
-  }
-}
-
-function getDemoResults(niche, city) {
-  // Résultats de démo pour tester sans API key
-  return [
-    {
-      name: `${niche.charAt(0).toUpperCase() + niche.slice(1)} Demo 1 — ${city}`,
-      formatted_address: `12 Rue de la Paix, ${city}`,
-      rating: 3.8,
-      user_ratings_total: 7,
-      photos: [{ photo_reference: 'demo' }],
-      website: null,
-      place_id: 'demo_1',
-      _demo: true
-    },
-    {
-      name: `${niche.charAt(0).toUpperCase() + niche.slice(1)} Demo 2 — ${city}`,
-      formatted_address: `45 Avenue Victor Hugo, ${city}`,
-      rating: 4.2,
-      user_ratings_total: 23,
-      photos: [{ photo_reference: 'demo' }, { photo_reference: 'demo2' }],
-      website: 'https://example.com',
-      place_id: 'demo_2',
-      _demo: true
-    },
-    {
-      name: `${niche.charAt(0).toUpperCase() + niche.slice(1)} Demo 3 — ${city}`,
-      formatted_address: `8 Rue du Commerce, ${city}`,
-      rating: 2.9,
-      user_ratings_total: 4,
-      photos: [],
-      website: null,
-      place_id: 'demo_3',
-      _demo: true
-    }
-  ]
-}
-
-async function scanCity(city, niche) {
-  console.error(`  🔍 Scan: ${niche} à ${city}`)
-  const places = await searchPlaces(niche, city)
-  const results = []
-
-  for (const place of places.slice(0, 5)) {
-    const analysis = analyzePlace(place)
-
-    // Ne garder que les fiches mal optimisées (score < 65)
-    if (analysis.total < 65) {
-      results.push({
-        name: place.name,
-        address: place.formatted_address,
-        rating: place.rating || 'N/A',
-        reviews: place.user_ratings_total || 0,
-        photos: place.photos?.length || 0,
-        website: place.website || null,
-        phone: place.formatted_phone_number || null,
-        place_id: place.place_id,
-        score: analysis.total,
-        issues: analysis.issues,
-        opportunities: analysis.opportunities,
-        niche,
-        city,
-        demo: place._demo || false
-      })
-    }
-  }
-
-  return results
+  return { score: Math.max(0, score), issues }
 }
 
 async function main() {
-  const targetCity = process.argv[2] || 'Tourcoing'
-  const targetNiche = process.argv[3] || null
+  const city = process.argv[2] || 'Tourcoing'
+  const niche = process.argv[3] || null
+  const nichesToScan = niche ? [niche] : NICHES.slice(0, 4)
 
-  console.error(`\n🗺️  SEO Local Scanner — ${targetCity}`)
-  console.error(`API Key: ${API_KEY ? '✅ Active' : '⚠️  Absente — mode démo'}`)
-  console.error('='  .repeat(50))
+  console.error(`\n🗺️  SEO Local Scanner — ${city}`)
+  console.error('='.repeat(50))
 
-  const nichesToScan = targetNiche ? [targetNiche] : NICHES.slice(0, 4)
-  const allResults = []
+  const opportunities = []
 
-  for (const niche of nichesToScan) {
-    const results = await scanCity(targetCity, niche)
-    allResults.push(...results)
-    await new Promise(r => setTimeout(r, 500)) // rate limit
-  }
-
-  // Trier par score (les pires en premier = meilleures opportunités)
-  allResults.sort((a, b) => a.score - b.score)
-
-  const output = {
-    scannedAt: new Date().toISOString(),
-    city: targetCity,
-    niches: nichesToScan,
-    totalScanned: allResults.length,
-    opportunities: allResults,
-    summary: {
-      noWebsite: allResults.filter(r => !r.website).length,
-      fewReviews: allResults.filter(r => r.reviews < 10).length,
-      lowRating: allResults.filter(r => r.rating < 4.0 && r.rating !== 'N/A').length,
+  for (const n of nichesToScan) {
+    console.error(`  🔍 ${n}...`)
+    const places = await searchPlaces(n, city)
+    for (const p of places) {
+      const { score, issues } = analyzePlace(p)
+      if (score < 85 && issues.length > 0) {
+        opportunities.push({ ...p, niche: n, city, score, issues })
+      }
     }
+    await new Promise(r => setTimeout(r, 300))
   }
 
-  console.log(JSON.stringify(output, null, 2))
+  opportunities.sort((a, b) => a.score - b.score)
+
+  console.log(JSON.stringify({
+    scannedAt: new Date().toISOString(),
+    city, niches: nichesToScan,
+    total: opportunities.length,
+    opportunities,
+    summary: {
+      noWebsite: opportunities.filter(o => !o.website).length,
+      fewReviews: opportunities.filter(o => o.reviews < 15).length,
+      lowRating: opportunities.filter(o => o.rating < 4.2).length,
+    }
+  }, null, 2))
 }
 
 main().catch(console.error)
