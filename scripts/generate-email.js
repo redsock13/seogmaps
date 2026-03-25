@@ -10,15 +10,43 @@ const https = require('https')
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || null
 const GOOGLE_KEY = process.env.GOOGLE_PLACES_API_KEY || null
 
-// Avis de démo si pas d'accès API reviews
-const DEMO_REVIEWS = [
-  { author: 'Jean-Pierre M.', rating: 5, text: 'Super garage, réparation rapide et prix honnête. Je recommande !', time: '2026-03-20' },
-  { author: 'Sophie L.', rating: 4, text: 'Bon travail mais attente un peu longue. Résultat impeccable.', time: '2026-03-15' },
-  { author: 'Marc D.', rating: 2, text: 'Délai non respecté, ma voiture était prête 3 jours après la date promise.', time: '2026-03-10' },
-]
+// Avis de démo par niche
+const DEMO_REVIEWS_BY_NICHE = {
+  'garage automobile': [
+    { author: 'Jean-Pierre M.', rating: 5, text: 'Super garage, réparation rapide et prix honnête. Je recommande !', time: '2026-03-20' },
+    { author: 'Sophie L.', rating: 4, text: 'Bon travail mais attente un peu longue. Résultat impeccable.', time: '2026-03-15' },
+    { author: 'Marc D.', rating: 2, text: 'Délai non respecté, ma voiture était prête 3 jours après la date promise.', time: '2026-03-10' },
+  ],
+  'plombier': [
+    { author: 'Christine B.', rating: 5, text: 'Intervention rapide, problème résolu en 30 min. Très professionnel !', time: '2026-03-20' },
+    { author: 'Thomas R.', rating: 4, text: 'Bon travail, prix correct. Je recommande.', time: '2026-03-15' },
+    { author: 'Nadia K.', rating: 2, text: 'Fuite pas complètement réparée, obligé de rappeler 2 jours après.', time: '2026-03-10' },
+  ],
+  'électricien': [
+    { author: 'Patrick V.', rating: 5, text: 'Travail soigné, rapide et propre. Très satisfait de l\'installation.', time: '2026-03-20' },
+    { author: 'Amina S.', rating: 4, text: 'Bon électricien, ponctuel. Prix un peu élevé mais qualité au rendez-vous.', time: '2026-03-15' },
+    { author: 'François L.', rating: 2, text: 'Rendez-vous décalé deux fois sans prévenir. Travail correct au final.', time: '2026-03-10' },
+  ],
+  'coiffeur': [
+    { author: 'Marie-Claire T.', rating: 5, text: 'Excellente coupe, exactement ce que je voulais. Je reviens !', time: '2026-03-20' },
+    { author: 'Laura P.', rating: 4, text: 'Très bien, ambiance sympa. Petit délai d\'attente mais résultat top.', time: '2026-03-15' },
+    { author: 'Kevin M.', rating: 2, text: 'Pas satisfait de la coupe, pas ce que j\'avais demandé.', time: '2026-03-10' },
+  ],
+  'boulangerie': [
+    { author: 'Sylvie D.', rating: 5, text: 'Excellent pain, croissants fondants. La meilleure boulangerie du quartier !', time: '2026-03-20' },
+    { author: 'Julien H.', rating: 4, text: 'Bons produits, accueil souriant. Parfois en rupture de stock l\'après-midi.', time: '2026-03-15' },
+    { author: 'Isabelle G.', rating: 2, text: 'Pain pas assez cuit aujourd\'hui, et vendeur peu aimable.', time: '2026-03-10' },
+  ],
+  'default': [
+    { author: 'Pierre M.', rating: 5, text: 'Excellent service, très professionnel. Je recommande vivement !', time: '2026-03-20' },
+    { author: 'Claire B.', rating: 4, text: 'Bon travail, satisfait du résultat. Bonne communication.', time: '2026-03-15' },
+    { author: 'David R.', rating: 2, text: 'Délai non respecté et peu de communication. Résultat correct finalement.', time: '2026-03-10' },
+  ]
+}
 
-async function getReviews(placeId) {
-  if (!GOOGLE_KEY || placeId.startsWith('demo_')) return DEMO_REVIEWS
+async function getReviews(placeId, niche = 'default') {
+  const demoReviews = DEMO_REVIEWS_BY_NICHE[niche] || DEMO_REVIEWS_BY_NICHE['default']
+  if (!GOOGLE_KEY || placeId.startsWith('demo_') || !placeId) return demoReviews
 
   return new Promise((resolve) => {
     let raw = ''
@@ -42,8 +70,12 @@ async function getReviews(placeId) {
             text: r.text?.text || '',
             time: r.relativePublishTimeDescription || '',
           }))
-          resolve(reviews.length ? reviews : DEMO_REVIEWS)
-        } catch { resolve(DEMO_REVIEWS) }
+          const demoReviews = DEMO_REVIEWS_BY_NICHE[niche] || DEMO_REVIEWS_BY_NICHE['default']
+          resolve(reviews.length ? reviews : demoReviews)
+        } catch {
+          const demoReviews = DEMO_REVIEWS_BY_NICHE[niche] || DEMO_REVIEWS_BY_NICHE['default']
+          resolve(demoReviews)
+        }
       })
     })
     req.on('error', () => resolve(DEMO_REVIEWS))
@@ -171,11 +203,19 @@ async function main() {
     photos: parseInt(args[6]) || 2,
     id: args[7] || 'demo_garage',
   }
-  const competitor = args[8] || 'Leader Auto Tourcoing'
+  // Concurrent dynamique par niche
+  const competitorsByNiche = {
+    'garage automobile': `un garage concurrent à ${business.city}`,
+    'plombier': `un plombier concurrent à ${business.city}`,
+    'électricien': `un électricien concurrent à ${business.city}`,
+    'coiffeur': `un salon concurrent à ${business.city}`,
+    'boulangerie': `une boulangerie concurrente à ${business.city}`,
+  }
+  const competitor = args[8] || competitorsByNiche[business.niche] || `un concurrent à ${business.city}`
 
   console.error(`\n✉️  Génération email pour : ${business.name}`)
   console.error('  → Récupération des avis...')
-  const reviews = await getReviews(business.id)
+  const reviews = await getReviews(business.id, business.niche)
 
   console.error(`  → ${reviews.length} avis trouvés — génération des réponses IA...`)
   const responses = await generateResponses(business.name, business.niche, reviews.slice(0, 3))
