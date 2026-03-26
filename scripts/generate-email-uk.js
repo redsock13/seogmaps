@@ -9,7 +9,7 @@ const fs = require('fs')
 const MARKET = process.argv[2] === 'us' ? 'US' : 'UK'
 const CURRENCY = MARKET === 'US' ? '$' : '£'
 const PRICE = MARKET === 'US' ? '$199' : '£199'
-const SENDER_NAME = 'Sam — zmimer.dev'
+const SENDER_NAME = 'Sam — mindforge-ia.com'
 
 const leadsFile = `/home/openclaw/.openclaw/workspace/seogmaps/results/${MARKET.toLowerCase()}-leads.json`
 const leads = JSON.parse(fs.readFileSync(leadsFile))
@@ -89,7 +89,7 @@ function buildEmail(lead, email) {
 
 <p>Interested? I reply same day.</p>
 
-<p>${SENDER_NAME} | <a href="https://zmimer.dev">zmimer.dev</a></p>`
+<p>${SENDER_NAME} | <a href="https://mindforge-ia.com">mindforge-ia.com</a></p>`
 
   return { to: email, businessName: lead.name, niche: lead.niche, city: lead.city, country: lead.country, subject, html }
 }

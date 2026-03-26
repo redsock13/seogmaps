@@ -83,7 +83,7 @@ function buildEmail(lead, email) {
 
 <p>Intéressé ? Je réponds aujourd'hui.</p>
 
-<p>Safwane — <a href="https://zmimer.dev">zmimer.dev</a></p>`
+<p>Safwane — <a href="https://mindforge-ia.com">mindforge-ia.com</a></p>`
   }
 }
 

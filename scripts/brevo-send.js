@@ -2,7 +2,7 @@
 const https = require('https');
 
 const BREVO_KEY = process.env.BREVO_API_KEY;
-const SENDER = { name: 'Safwane — zmimer.dev', email: 'contact@mindforge-ia.com' };
+const SENDER = { name: 'Safwane — mindforge-ia.com', email: 'contact@mindforge-ia.com' };
 const REPLY_TO = { email: 'contact.zmimax@gmail.com', name: 'Safwane' };
 
 function sendEmail(to, subject, html, senderName) {

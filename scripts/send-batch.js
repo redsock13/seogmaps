@@ -14,7 +14,7 @@ function sendEmail({ to, subject, html, senderName }) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       sender: {
-        name: senderName || 'Safwane — zmimer.dev',
+        name: senderName || 'Safwane — mindforge-ia.com',
         email: 'contact@mindforge-ia.com'
       },
       replyTo: {

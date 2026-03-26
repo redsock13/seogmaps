@@ -188,7 +188,7 @@ Pour 99€ flat je vous livre sous 48h :
 
 Intéressé ? Je réponds aujourd'hui.
 
-Safwane — zmimer.dev`
+Safwane — mindforge-ia.com`
 }
 
 async function main() {
